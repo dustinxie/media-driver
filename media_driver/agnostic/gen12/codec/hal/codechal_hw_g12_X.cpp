@@ -399,6 +399,15 @@ MOS_STATUS CodechalHwInterfaceG12::SendCondBbEndCmd(
     return eStatus;
 }
 
+MOS_STATUS CodechalHwInterfaceG12::UsesRenderEngine(CODECHAL_FUNCTION codecFunction, uint32_t standard)
+{
+    if (codecFunction == CODECHAL_FUNCTION_ENC_VDENC_PAK && standard == CODECHAL_AV1)
+    {
+        return false;
+    }
+    return CodechalHwInterface::UsesRenderEngine(codecFunction, standard);
+}
+
 MOS_STATUS CodechalHwInterfaceG12::Initialize(
     CodechalSetting *settings)
 {
@@ -406,22 +415,64 @@ MOS_STATUS CodechalHwInterfaceG12::Initialize(
 
     CODECHAL_HW_FUNCTION_ENTER;
 
-    CODECHAL_HW_CHK_STATUS_RETURN(CodechalHwInterface::Initialize(settings));
+    if (UsesRenderEngine(settings->codecFunction, settings->standard) ||
+        CodecHalIsEnableFieldScaling(settings->codecFunction, settings->standard, settings->downsamplingHinted))
+    {
+        CODECHAL_HW_CHK_NULL_RETURN(m_renderInterface);
 
-    //Initialize renderHal
-    m_renderHal = (PRENDERHAL_INTERFACE)MOS_AllocAndZeroMemory(sizeof(RENDERHAL_INTERFACE));
-    CODECHAL_HW_CHK_NULL_RETURN(m_renderHal);
-    CODECHAL_HW_CHK_STATUS_RETURN(RenderHal_InitInterface(
+        m_stateHeapSettings.m_ishBehavior = HeapManager::Behavior::clientControlled;
+        m_stateHeapSettings.m_dshBehavior = HeapManager::Behavior::destructiveExtend;
+        // As a performance optimization keep the DSH locked always,
+        // the ISH is only accessed at device creation and thus does not need to be locked
+        m_stateHeapSettings.m_keepDshLocked = true;
+        m_stateHeapSettings.dwDshIncrement = 2 * MOS_PAGE_SIZE;
+
+        if (m_stateHeapSettings.dwIshSize > 0 &&
+            m_stateHeapSettings.dwDshSize > 0 &&
+            m_stateHeapSettings.dwNumSyncTags > 0)
+        {
+            CODECHAL_HW_CHK_STATUS_RETURN(m_renderInterface->AllocateHeaps(
+                m_stateHeapSettings));
+        }
+    }
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
+    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+    MOS_UserFeature_ReadValue_ID(
+        nullptr,
+        __MEDIA_USER_FEATURE_VALUE_SSEU_SETTING_OVERRIDE_ID,
+        &userFeatureData,
+        m_osInterface->pOsContext);
+    if (userFeatureData.i32Data != 0xDEADC0DE)
+    {
+        m_numRequestedEuSlicesOverride = userFeatureData.i32Data & 0xFF;              // Bits 0-7
+        m_numRequestedSubSlicesOverride = (userFeatureData.i32Data >> 8) & 0xFF;      // Bits 8-15
+        m_numRequestedEusOverride = (userFeatureData.i32Data >> 16) & 0xFFFF;         // Bits 16-31
+        m_numRequestedOverride = true;
+    }
+#endif
+
+    m_enableCodecMmc = !MEDIA_IS_WA(GetWaTable(), WaDisableCodecMmc);
+
+    // or use that InitRenderHal() you added
+    if (UsesRenderEngine(settings->codecFunction, settings->standard))
+    {
+        //Initialize renderHal
+        m_renderHal = (PRENDERHAL_INTERFACE)MOS_AllocAndZeroMemory(sizeof(RENDERHAL_INTERFACE));
+        CODECHAL_HW_CHK_NULL_RETURN(m_renderHal);
+        CODECHAL_HW_CHK_STATUS_RETURN(RenderHal_InitInterface(
         m_renderHal,
         &m_renderHalCpInterface,
         m_osInterface));
 
-    RENDERHAL_SETTINGS RenderHalSettings;
-    RenderHalSettings.iMediaStates = 32;
-    CODECHAL_HW_CHK_STATUS_RETURN(m_renderHal->pfnInitialize(m_renderHal, &RenderHalSettings));
+        RENDERHAL_SETTINGS RenderHalSettings;
+        RenderHalSettings.iMediaStates = 32;
+        CODECHAL_HW_CHK_STATUS_RETURN(m_renderHal->pfnInitialize(m_renderHal, &RenderHalSettings));
 
-    //set SSEU table
-    m_renderHal->sseuTable = m_ssEuTable;
+        //set SSEU table
+        m_renderHal->sseuTable = m_ssEuTable;
+    }
 
     return eStatus;
 }

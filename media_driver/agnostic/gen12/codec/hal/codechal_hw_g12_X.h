@@ -203,5 +203,7 @@ public:
     //!
     MOS_STATUS Initialize(
         CodechalSetting *settings) override;
+
+    bool UsesRenderEngine(CODECHAL_FUNCTION codecFunction, uint32_t standard);
 };
 #endif // __CODECHAL_HW_G12_X_H__
