@@ -976,6 +976,9 @@ public:
 
     PMHW_VDBOX_HCP_TILE_CODING_PARAMS_G11 m_tileParams = nullptr;  //!< Pointer to the Tile params
 
+    MOS_SURFACE                                 m_dummyDsRefSurface4x = {};
+    MOS_SURFACE                                 m_dummyDsRefSurface8x = {};
+
     //!
     //! \brief    Constructor
     //!
@@ -1192,5 +1195,10 @@ public:
     MOS_STATUS  SetAndPopulateVEHintParams(
         PMOS_COMMAND_BUFFER  cmdBuffer);
 
+    MOS_STATUS AllocateSurfaceNV12TileY(
+        PMOS_SURFACE surface,
+        uint32_t width,
+        uint32_t height,
+        const char* name);
 };
 #endif  // __CODECHAL_VDENC_VP9_G11_H__

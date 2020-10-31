@@ -4990,6 +4990,20 @@ void CodechalVdencVp9StateG11::FreeResources()
         }
     }
 
+    // free dummy 4x/8x DS surface
+    if (!Mos_ResourceIsNull(&m_dummyDsRefSurface4x.OsResource))
+    {
+        m_osInterface->pfnFreeResource(
+            m_osInterface,
+            &m_dummyDsRefSurface4x.OsResource);
+    }
+
+    if (!Mos_ResourceIsNull(&m_dummyDsRefSurface8x.OsResource))
+    {
+        m_osInterface->pfnFreeResource(
+            m_osInterface,
+            &m_dummyDsRefSurface8x.OsResource);
+    }
     return;
 }
 
@@ -5016,6 +5030,46 @@ MOS_STATUS CodechalVdencVp9StateG11::SendMIAtomicCmd(
     return eStatus;
 }
 
+// this func copied from CodechalEncodeHevcBase::AllocateSurface
+MOS_STATUS CodechalVdencVp9StateG11::AllocateSurfaceNV12TileY(
+    PMOS_SURFACE surface,
+    uint32_t width,
+    uint32_t height,
+    const char* name)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    CODECHAL_ENCODE_FUNCTION_ENTER;
+
+    CODECHAL_ENCODE_CHK_NULL_RETURN(surface);
+
+    MOS_ALLOC_GFXRES_PARAMS allocParams;
+    MOS_ZeroMemory(&allocParams, sizeof(MOS_ALLOC_GFXRES_PARAMS));
+    allocParams.Type = MOS_GFXRES_2D;
+    allocParams.TileType = MOS_TILE_Y;
+    allocParams.Format = Format_NV12;
+    allocParams.dwWidth = width;
+    allocParams.dwHeight = height;
+    allocParams.pBufName = name;
+
+    eStatus = (MOS_STATUS)m_osInterface->pfnAllocateResource(
+        m_osInterface,
+        &allocParams,
+        &surface->OsResource);
+
+    if (eStatus != MOS_STATUS_SUCCESS)
+    {
+        CODECHAL_ENCODE_ASSERTMESSAGE("Failed to allocate %s.", name);
+        return eStatus;
+    }
+
+    CODECHAL_ENCODE_CHK_STATUS_RETURN(CodecHalGetResourceInfo(
+        m_osInterface,
+        surface));
+
+    return eStatus;
+}
+
 MOS_STATUS CodechalVdencVp9StateG11::Initialize(CodechalSetting * settings)
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
@@ -5027,6 +5081,16 @@ MOS_STATUS CodechalVdencVp9StateG11::Initialize(CodechalSetting * settings)
     m_hucCmdInitializer = MOS_New(CodechalCmdInitializerG11, this);
 
     CODECHAL_ENCODE_CHK_STATUS_RETURN(CodechalVdencVp9State::Initialize(settings));
+
+    // allocate dummy 4x/8x DS surface
+    // TODO: calculate 4x width and height, refer to CodechalEncodeTrackedBuffer::AllocateSurfaceDS()
+    uint32_t width = 0;
+    uint32_t height = 0;
+    CODECHAL_ENCODE_CHK_STATUS_RETURN(AllocateSurfaceNV12TileY(&m_dummyDsRefSurface4x, width, height, "dummy 4xDs surface"));
+    // TODO: calculate 8x width and height, refer to CodechalEncodeTrackedBuffer::AllocateSurfaceDS()
+    width = 0;
+    height = 0;
+    CODECHAL_ENCODE_CHK_STATUS_RETURN(AllocateSurfaceNV12TileY(&m_dummyDsRefSurface8x, width, height, "dummy 8xDs surface"));
 
     GetSystemPipeNumberCommon();
 
